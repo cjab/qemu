@@ -1017,6 +1017,20 @@ static void ati_mm_write(void *opaque, hwaddr addr,
         break;
     case SRC_SC_BOTTOM:
         s->regs.src_sc_bottom = data & 0x3fff;
+    case HOST_DATA0:
+    case HOST_DATA1:
+    case HOST_DATA2:
+    case HOST_DATA3:
+    case HOST_DATA4:
+    case HOST_DATA5:
+    case HOST_DATA6:
+    case HOST_DATA7:
+    case HOST_DATA_LAST:
+        s->host_data_acc[s->host_data_pos] = data;
+        if (s->host_data_pos == 3 || addr == HOST_DATA_LAST) {
+            qemu_log_mask(LOG_UNIMP, "HOST_DATA blit not yet implemented\n");
+        }
+        s->host_data_pos = addr == HOST_DATA_LAST ? 0 : s->host_data_pos % 4;
         break;
     default:
         break;
@@ -1123,6 +1137,7 @@ static void ati_vga_reset(DeviceState *dev)
     /* reset vga */
     vga_common_reset(&s->vga);
     s->mode = VGA_MODE;
+    s->host_data_pos = 0;
 }
 
 static void ati_vga_exit(PCIDevice *dev)
