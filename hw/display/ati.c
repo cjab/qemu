@@ -888,6 +888,14 @@ static void ati_mm_write(void *opaque, hwaddr addr,
                               (data & 0x4000) << 16;
         s->regs.dp_mix = (data & GMC_ROP3_MASK) | (data & 0x7000000) >> 16;
 
+        if ((data & GMC_SRC_PITCH_OFFSET_CNTL_MASK) == GMC_SRC_PITCH_OFFSET_DEFAULT) {
+            s->regs.src_offset = s->regs.default_offset;
+            s->regs.src_pitch = s->regs.default_pitch;
+        }
+        if ((data & GMC_DST_PITCH_OFFSET_CNTL_MASK) == GMC_DST_PITCH_OFFSET_DEFAULT) {
+            s->regs.dst_offset = s->regs.default_offset;
+            s->regs.dst_pitch = s->regs.default_pitch;
+        }
         if ((data & GMC_SRC_CLIPPING_MASK) == GMC_SRC_CLIP_DEFAULT) {
             s->regs.src_sc_right = s->regs.default_sc_right;
             s->regs.src_sc_bottom = s->regs.default_sc_bottom;
