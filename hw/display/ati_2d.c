@@ -13,6 +13,7 @@
 #include "qemu/log.h"
 #include "ui/pixel_ops.h"
 #include "ui/console.h"
+#include "ui/rect.h"
 
 /*
  * NOTE:
@@ -41,6 +42,29 @@ static int ati_bpp_from_datatype(ATIVGAState *s)
                       s->regs.dp_datatype & 0xf);
         return 0;
     }
+}
+
+static QemuRect dst_rect(ATIVGAState *s)
+{
+    QemuRect dst;
+    unsigned dst_x = (s->regs.dp_cntl & DST_X_LEFT_TO_RIGHT ?
+                     s->regs.dst_x :
+                     s->regs.dst_x + 1 - s->regs.dst_width);
+    unsigned dst_y = (s->regs.dp_cntl & DST_Y_TOP_TO_BOTTOM ?
+                     s->regs.dst_y :
+                     s->regs.dst_y + 1 - s->regs.dst_height);
+    qemu_rect_init(&dst, dst_x, dst_y, s->regs.dst_width, s->regs.dst_height);
+    return dst;
+}
+
+static QemuRect sc_rect(ATIVGAState *s)
+{
+    QemuRect sc;
+    qemu_rect_init(&sc,
+                   s->regs.sc_left, s->regs.sc_top,
+                   s->regs.sc_right - s->regs.sc_left + 1,
+                   s->regs.sc_bottom - s->regs.sc_top + 1);
+    return sc;
 }
 
 void ati_2d_blt(ATIVGAState *s)
