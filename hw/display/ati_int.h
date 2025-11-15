@@ -114,11 +114,13 @@ struct ATIVGAState {
     MemoryRegion mm;
     ATIVGARegs regs;
     uint32_t host_data_pos;
+    uint32_t host_data_chunks;
     uint32_t host_data_acc[4];
 };
 
 const char *ati_reg_name(int num);
 
 void ati_2d_blt(ATIVGAState *s);
+void ati_host_data_blt(ATIVGAState *s);
 
 #endif /* ATI_INT_H */

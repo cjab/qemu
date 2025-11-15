@@ -123,6 +123,12 @@ static ATIBlitDest setup_2d_blt_dst(ATIVGAState *s)
 
 void ati_2d_blt(ATIVGAState *s)
 {
+    uint32_t src = s->regs.dp_gui_master_cntl & GMC_SRC_SOURCE_MASK;
+    if (src == GMC_SRC_SOURCE_HOST_DATA) {
+        /* HOST_DATA blits are handled separately by ati_host_data_blt() */
+        return;
+    }
+
     /* FIXME it is probably more complex than this and may need to be */
     /* rewritten but for now as a start just to get some output: */
     DisplaySurface *ds = qemu_console_surface(s->vga.con);
@@ -298,4 +304,95 @@ void ati_2d_blt(ATIVGAState *s)
         qemu_log_mask(LOG_UNIMP, "Unimplemented ati_2d blt op %x\n",
                       (s->regs.dp_mix & GMC_ROP3_MASK) >> 16);
     }
+}
+
+void ati_host_data_blt(ATIVGAState *s)
+{
+    DisplaySurface *ds = qemu_console_surface(s->vga.con);
+
+    ATIBlitDest dst = setup_2d_blt_dst(s);
+    if (!dst.valid) {
+        return;
+    }
+
+    uint32_t src = s->regs.dp_gui_master_cntl & GMC_SRC_SOURCE_MASK;
+    if (src != GMC_SRC_SOURCE_HOST_DATA) {
+        qemu_log_mask(LOG_UNIMP,
+                      "host_data_blt: only GMC_SRC_SOURCE_HOST_DATA "
+                      "supported\n");
+        return;
+    }
+
+    unsigned src_datatype = s->regs.dp_gui_master_cntl & GMC_SRC_DATATYPE_MASK;
+    if (src_datatype != GMC_SRC_DATATYPE_MONO_FRGD_BKGD) {
+        qemu_log_mask(LOG_UNIMP,
+                      "host_data_blt: only GMC_SRC_DATATYPE_MONO_FRGD_BKGD "
+                      "supported\n");
+        return;
+    }
+
+    uint32_t rop = s->regs.dp_mix & GMC_ROP3_MASK;
+    if (rop != ROP3_SRCCOPY) {
+        qemu_log_mask(LOG_UNIMP,
+                      "host_data_blt: only ROP3_SRCCOPY supported. rop: %x\n",
+                      rop);
+        return;
+    }
+
+    if (!dst.left_to_right || !dst.top_to_bottom) {
+        qemu_log_mask(LOG_UNIMP, "host_data_blt: only L->R, T->B supported\n");
+        return;
+    }
+
+    bool lsb_to_msb = s->regs.dp_gui_master_cntl & GMC_BYTE_ORDER_LSB_TO_MSB;
+    uint32_t fg = s->regs.dp_src_frgd_clr;
+    uint32_t bg = s->regs.dp_src_bkgd_clr;
+    int bytes_per_pixel = dst.bpp / 8;
+
+    /*
+     * Host data "chunks" is the number of 128-bit blits during this
+     * overall blit operation. start_bit tells us where we are in that
+     * process.
+     */
+    uint32_t start_bit = s->host_data_chunks * 128;
+    DPRINTF("host_data_blt start_bit: %d\n", start_bit);
+
+    for (int i = 0; i < 128; i++) {
+        /* Find destination for this bit/pixel */
+        uint32_t bit_idx = start_bit + i;
+        uint32_t row = bit_idx / dst.rect.width;
+        uint32_t col = bit_idx % dst.rect.width;
+        DPRINTF("host_data_blt bit_idx: %d, row: %d, col: %d\n",
+                bit_idx, row, col);
+        if (row >= dst.rect.height) {
+            /* TODO: What does real hardware do in this case? */
+            DPRINTF("HOST_DATA blit completed\n");
+            break;
+        }
+
+        /* Expand source bit */
+        int acc_word = i / 32;
+        int bit_in_acc_word = lsb_to_msb ? (i % 32) : (31 - (i % 32));
+        bool is_fg = (s->host_data_acc[acc_word] >> bit_in_acc_word) & 1;
+        uint32_t color = is_fg ? fg : bg;
+
+        /* Write expanded pixel */
+        uint8_t *pixel = dst.bits + (row * dst.stride + col * bytes_per_pixel);
+        memcpy(pixel, &color, bytes_per_pixel);
+    }
+
+    /*
+     * FIXME: This is setting the entire blit to dirty.
+     *        We maybe just need this tiny section?
+     */
+    if (dst.bits >= s->vga.vram_ptr + s->vga.vbe_start_addr &&
+        dst.bits < s->vga.vram_ptr + s->vga.vbe_start_addr +
+        s->vga.vbe_regs[VBE_DISPI_INDEX_YRES] * s->vga.vbe_line_offset) {
+        memory_region_set_dirty(&s->vga.vram, s->vga.vbe_start_addr +
+                                s->regs.dst_offset +
+                                dst.visible.y * surface_stride(ds),
+                                dst.visible.height * surface_stride(ds));
+    }
+
+    s->host_data_chunks++;
 }
