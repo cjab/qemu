@@ -67,6 +67,60 @@ static QemuRect sc_rect(ATIVGAState *s)
     return sc;
 }
 
+typedef struct {
+    QemuRect rect;
+    QemuRect visible;
+    uint32_t src_left_offset;
+    uint32_t src_top_offset;
+    int bpp;
+    int stride;
+    bool top_to_bottom;
+    bool left_to_right;
+    bool valid;
+    uint8_t *bits;
+} ATIBlitDest;
+
+static ATIBlitDest setup_2d_blt_dst(ATIVGAState *s)
+{
+    ATIBlitDest dst = { .valid = false };
+    uint8_t *end = s->vga.vram_ptr + s->vga.vram_size;
+    QemuRect scissor = sc_rect(s);
+
+    dst.rect = dst_rect(s);
+    if (!qemu_rect_intersect(&dst.rect, &scissor, &dst.visible)) {
+        /* Destination is completedly clipped, nothing to draw */
+        return dst;
+    }
+    dst.src_left_offset = dst.visible.x - dst.rect.x;
+    dst.src_top_offset = dst.visible.y - dst.rect.y;
+    dst.bpp = ati_bpp_from_datatype(s);
+    if (!dst.bpp) {
+        qemu_log_mask(LOG_GUEST_ERROR, "Invalid bpp\n");
+        return dst;
+    }
+    dst.stride = s->regs.dst_pitch;
+    if (!dst.stride) {
+        qemu_log_mask(LOG_GUEST_ERROR, "Zero dest pitch\n");
+        return dst;
+    }
+    dst.bits = s->vga.vram_ptr + s->regs.dst_offset;
+    if (s->dev_id == PCI_DEVICE_ID_ATI_RAGE128_PF) {
+        dst.bits += s->regs.crtc_offset & 0x07ffffff;
+        dst.stride *= dst.bpp;
+    }
+    if (dst.visible.x > 0x3fff || dst.visible.y > 0x3fff || dst.bits >= end
+        || dst.bits + dst.visible.x
+         + (dst.visible.y + dst.visible.height) * dst.stride >= end) {
+        qemu_log_mask(LOG_UNIMP, "blt outside vram not implemented\n");
+        return dst;
+    }
+    dst.left_to_right = s->regs.dp_cntl & DST_X_LEFT_TO_RIGHT;
+    dst.top_to_bottom = s->regs.dp_cntl & DST_Y_TOP_TO_BOTTOM;
+    dst.valid = true;
+
+    return dst;
+}
+
 void ati_2d_blt(ATIVGAState *s)
 {
     /* FIXME it is probably more complex than this and may need to be */
