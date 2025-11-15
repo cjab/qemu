@@ -370,6 +370,15 @@ void ati_host_data_blt(ATIVGAState *s)
             break;
         }
 
+        /* Clipping */
+        if (row < dst.src_top_offset ||
+            row >= dst.src_top_offset + dst.visible.height ||
+            col < dst.src_left_offset ||
+            col >= dst.src_left_offset + dst.visible.width) {
+            /* Skip this pixel, it's been clipped! */
+            continue;
+        }
+
         /* Expand source bit */
         int acc_word = i / 32;
         int bit_in_acc_word = lsb_to_msb ? (i % 32) : (31 - (i % 32));
@@ -377,7 +386,11 @@ void ati_host_data_blt(ATIVGAState *s)
         uint32_t color = is_fg ? fg : bg;
 
         /* Write expanded pixel */
-        uint8_t *pixel = dst.bits + (row * dst.stride + col * bytes_per_pixel);
+        uint32_t visible_row = row - dst.src_top_offset;
+        uint32_t visible_col = col - dst.src_left_offset;
+        uint8_t *pixel = dst.bits +
+                         (dst.visible.y + visible_row) * dst.stride +
+                         (dst.visible.x + visible_col) * bytes_per_pixel;
         memcpy(pixel, &color, bytes_per_pixel);
     }
 
