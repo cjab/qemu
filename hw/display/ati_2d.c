@@ -354,7 +354,7 @@ void ati_host_data_blt(ATIVGAState *s)
      * overall blit operation. start_bit tells us where we are in that
      * process.
      */
-    uint32_t start_bit = s->host_data_chunks * 128;
+    uint32_t start_bit = s->host_data.chunks * 128;
     DPRINTF("host_data_blt start_bit: %d\n", start_bit);
 
     for (int i = 0; i < 128; i++) {
@@ -382,7 +382,7 @@ void ati_host_data_blt(ATIVGAState *s)
         /* Expand source bit */
         int acc_word = i / 32;
         int bit_in_acc_word = lsb_to_msb ? (i % 32) : (31 - (i % 32));
-        bool is_fg = (s->host_data_acc[acc_word] >> bit_in_acc_word) & 1;
+        bool is_fg = (s->host_data.acc[acc_word] >> bit_in_acc_word) & 1;
         uint32_t color = is_fg ? fg : bg;
 
         /* Write expanded pixel */
@@ -407,5 +407,5 @@ void ati_host_data_blt(ATIVGAState *s)
                                 dst.visible.height * surface_stride(ds));
     }
 
-    s->host_data_chunks++;
+    s->host_data.chunks += 1;
 }

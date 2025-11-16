@@ -96,6 +96,14 @@ typedef struct ATIVGARegs {
     uint16_t src_sc_right;
 } ATIVGARegs;
 
+typedef struct ATIHostDataState {
+    uint32_t row;
+    uint32_t col;
+    uint32_t chunks; /* TODO: Remove Me! */
+    uint32_t next;
+    uint32_t acc[4];
+} ATIHostDataState;
+
 struct ATIVGAState {
     PCIDevice dev;
     VGACommonState vga;
@@ -113,9 +121,7 @@ struct ATIVGAState {
     MemoryRegion io;
     MemoryRegion mm;
     ATIVGARegs regs;
-    uint32_t host_data_pos;
-    uint32_t host_data_chunks;
-    uint32_t host_data_acc[4];
+    ATIHostDataState host_data;
 };
 
 const char *ati_reg_name(int num);
