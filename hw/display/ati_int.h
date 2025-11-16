@@ -99,7 +99,6 @@ typedef struct ATIVGARegs {
 typedef struct ATIHostDataState {
     uint32_t row;
     uint32_t col;
-    uint32_t chunks; /* TODO: Remove Me! */
     uint32_t next;
     uint32_t acc[4];
 } ATIHostDataState;

@@ -560,7 +560,6 @@ static void ati_host_data_reset(ATIHostDataState *hd)
     hd->next = 0;
     hd->row = 0;
     hd->col = 0;
-    hd->chunks = 0; /* TODO: Remove me! */
 }
 
 static void ati_mm_write(void *opaque, hwaddr addr,

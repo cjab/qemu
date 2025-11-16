@@ -347,56 +347,85 @@ void ati_host_data_blt(ATIVGAState *s)
     bool lsb_to_msb = s->regs.dp_gui_master_cntl & GMC_BYTE_ORDER_LSB_TO_MSB;
     uint32_t fg = s->regs.dp_src_frgd_clr;
     uint32_t bg = s->regs.dp_src_bkgd_clr;
-    int bytes_per_pixel = dst.bpp / 8;
+    int bypp = dst.bpp / 8;
 
-    /*
-     * Host data "chunks" is the number of 128-bit blits during this
-     * overall blit operation. start_bit tells us where we are in that
-     * process.
-     */
-    uint32_t start_bit = s->host_data.chunks * 128;
-    DPRINTF("host_data_blt start_bit: %d\n", start_bit);
-
-    for (int i = 0; i < 128; i++) {
-        /* Find destination for this bit/pixel */
-        uint32_t bit_idx = start_bit + i;
-        uint32_t row = bit_idx / dst.rect.width;
-        uint32_t col = bit_idx % dst.rect.width;
-        DPRINTF("host_data_blt bit_idx: %d, row: %d, col: %d\n",
-                bit_idx, row, col);
-        if (row >= dst.rect.height) {
-            /* TODO: What does real hardware do in this case? */
-            DPRINTF("HOST_DATA blit completed\n");
-            break;
+    /* Expand monochrome bits to color pixels */
+    uint8_t expansion_buff[128 * 4];
+    int idx = 0;
+    for (int word = 0; word < 4; word++) {
+        for (int i = 0; i < 32; i++) {
+            int bit = lsb_to_msb ? i : (31 - i);
+            bool is_fg = extract32(s->host_data.acc[word], bit, 1);
+            uint32_t color = is_fg ? fg : bg;
+            switch (bypp) {
+            case 1: {
+                uint8_t *pixel = &expansion_buff[idx];
+                *pixel = (uint8_t)color;
+                break;
+            }
+            case 2: {
+                uint16_t *pixel = (uint16_t *)&expansion_buff[idx * bypp];
+                *pixel = (uint16_t)color;
+                break;
+            }
+            case 4: {
+                uint32_t *pixel = (uint32_t *)&expansion_buff[idx * bypp];
+                *pixel = (uint32_t)color;
+                break;
+            }
+            default:
+                qemu_log_mask(LOG_UNIMP,
+                              "host_data_blt: dst datatype not implemented\n");
+            }
+            idx += 1;
         }
+    }
 
-        /* Clipping */
+    /* Copy to VRAM one scanline at a time */
+    uint32_t row = s->host_data.row;
+    uint32_t col = s->host_data.col;
+    uint32_t bit_idx = 0;
+    while (bit_idx < 128 && row < dst.rect.height) {
+        int start_col, end_col, visible_row, num_pixels;
+        int pixels_in_scanline = MIN(128 - bit_idx, dst.rect.width - col);
+        uint8_t *vram_dst;
+
+        /* Row-based clipping */
         if (row < dst.src_top_offset ||
-            row >= dst.src_top_offset + dst.visible.height ||
-            col < dst.src_left_offset ||
-            col >= dst.src_left_offset + dst.visible.width) {
-            /* Skip this pixel, it's been clipped! */
-            continue;
+            row >= dst.src_top_offset + dst.visible.height) {
+            goto skip_pixels;
         }
 
-        /* Expand source bit */
-        int acc_word = i / 32;
-        int bit_in_acc_word = lsb_to_msb ? (i % 32) : (31 - (i % 32));
-        bool is_fg = (s->host_data.acc[acc_word] >> bit_in_acc_word) & 1;
-        uint32_t color = is_fg ? fg : bg;
+        /* Column-based clipping */
+        start_col = MAX(col, dst.src_left_offset);
+        end_col = MIN(col + pixels_in_scanline,
+                      dst.src_left_offset + dst.visible.width);
+        if (end_col <= start_col) {
+            goto skip_pixels;
+        }
 
-        /* Write expanded pixel */
-        uint32_t visible_row = row - dst.src_top_offset;
-        uint32_t visible_col = col - dst.src_left_offset;
-        uint8_t *pixel = dst.bits +
-                         (dst.visible.y + visible_row) * dst.stride +
-                         (dst.visible.x + visible_col) * bytes_per_pixel;
-        memcpy(pixel, &color, bytes_per_pixel);
+        /* Copy expanded bits/pixels to VRAM */
+        visible_row = row - dst.src_top_offset;
+        num_pixels = end_col - start_col;
+        vram_dst = dst.bits +
+            (dst.visible.y + visible_row) * dst.stride +
+            (dst.visible.x + (start_col - dst.src_left_offset)) * bypp;
+
+        int buff_start = (bit_idx + (start_col - col)) * bypp;
+        memcpy(vram_dst, &expansion_buff[buff_start], num_pixels * bypp);
+
+    skip_pixels:
+        bit_idx += pixels_in_scanline;
+        col += pixels_in_scanline;
+        if (col >= dst.rect.width) {
+            col = 0;
+            row += 1;
+        }
     }
 
     /*
-     * FIXME: This is setting the entire blit to dirty.
-     *        We maybe just need this tiny section?
+     * TODO: This is setting the entire blit region to dirty.
+     *       We maybe just need this tiny section?
      */
     if (dst.bits >= s->vga.vram_ptr + s->vga.vbe_start_addr &&
         dst.bits < s->vga.vram_ptr + s->vga.vbe_start_addr +
@@ -407,5 +436,6 @@ void ati_host_data_blt(ATIVGAState *s)
                                 dst.visible.height * surface_stride(ds));
     }
 
-    s->host_data.chunks += 1;
+    s->host_data.row = row;
+    s->host_data.col = col;
 }
