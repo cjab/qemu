@@ -88,11 +88,9 @@ static ATIBlitDest setup_2d_blt_dst(ATIVGAState *s)
 
     dst.rect = dst_rect(s);
     if (!qemu_rect_intersect(&dst.rect, &scissor, &dst.visible)) {
-        /* Destination is completedly clipped, nothing to draw */
+        /* Destination is completely clipped, nothing to draw */
         return dst;
     }
-    dst.src_left_offset = dst.visible.x - dst.rect.x;
-    dst.src_top_offset = dst.visible.y - dst.rect.y;
     dst.bpp = ati_bpp_from_datatype(s);
     if (!dst.bpp) {
         qemu_log_mask(LOG_GUEST_ERROR, "Invalid bpp\n");
@@ -114,6 +112,8 @@ static ATIBlitDest setup_2d_blt_dst(ATIVGAState *s)
         qemu_log_mask(LOG_UNIMP, "blt outside vram not implemented\n");
         return dst;
     }
+    dst.src_left_offset = dst.visible.x - dst.rect.x;
+    dst.src_top_offset = dst.visible.y - dst.rect.y;
     dst.left_to_right = s->regs.dp_cntl & DST_X_LEFT_TO_RIGHT;
     dst.top_to_bottom = s->regs.dp_cntl & DST_Y_TOP_TO_BOTTOM;
     dst.valid = true;
@@ -125,7 +125,7 @@ void ati_2d_blt(ATIVGAState *s)
 {
     uint32_t src = s->regs.dp_gui_master_cntl & GMC_SRC_SOURCE_MASK;
     if (src == GMC_SRC_SOURCE_HOST_DATA) {
-        /* HOST_DATA blits are handled separately by ati_host_data_blt() */
+        /* HOST_DATA blits are handled separately by ati_flush_host_data() */
         return;
     }
 
@@ -306,7 +306,7 @@ void ati_2d_blt(ATIVGAState *s)
     }
 }
 
-void ati_host_data_blt(ATIVGAState *s)
+void ati_flush_host_data(ATIVGAState *s)
 {
     DisplaySurface *ds = qemu_console_surface(s->vga.con);
 
@@ -350,6 +350,7 @@ void ati_host_data_blt(ATIVGAState *s)
     int bypp = dst.bpp / 8;
 
     /* Expand monochrome bits to color pixels */
+    /* Buffer is 128 pixels with a max depth of 4 bytes */
     uint8_t expansion_buff[128 * 4];
     int idx = 0;
     for (int word = 0; word < 4; word++) {
@@ -408,8 +409,8 @@ void ati_host_data_blt(ATIVGAState *s)
         visible_row = row - dst.src_top_offset;
         num_pixels = end_col - start_col;
         vram_dst = dst.bits +
-            (dst.visible.y + visible_row) * dst.stride +
-            (dst.visible.x + (start_col - dst.src_left_offset)) * bypp;
+                   (dst.visible.y + visible_row) * dst.stride +
+                   (dst.visible.x + (start_col - dst.src_left_offset)) * bypp;
 
         int buff_start = (bit_idx + (start_col - col)) * bypp;
         memcpy(vram_dst, &expansion_buff[buff_start], num_pixels * bypp);
@@ -422,6 +423,9 @@ void ati_host_data_blt(ATIVGAState *s)
             row += 1;
         }
     }
+    /* Track state of the overall blit for use by the next flush */
+    s->host_data.row = row;
+    s->host_data.col = col;
 
     /*
      * TODO: This is setting the entire blit region to dirty.
@@ -435,7 +439,4 @@ void ati_host_data_blt(ATIVGAState *s)
                                 dst.visible.y * surface_stride(ds),
                                 dst.visible.height * surface_stride(ds));
     }
-
-    s->host_data.row = row;
-    s->host_data.col = col;
 }

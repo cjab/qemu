@@ -1038,7 +1038,7 @@ static void ati_mm_write(void *opaque, hwaddr addr,
     case HOST_DATA7:
         s->host_data.acc[s->host_data.next] = data;
         if (s->host_data.next >= 3) {
-            ati_host_data_blt(s);
+            ati_flush_host_data(s);
             s->host_data.next = 0;
             break;
         }
@@ -1046,7 +1046,7 @@ static void ati_mm_write(void *opaque, hwaddr addr,
         break;
     case HOST_DATA_LAST:
         s->host_data.acc[s->host_data.next] = data;
-        ati_host_data_blt(s);
+        ati_flush_host_data(s);
         ati_host_data_reset(&s->host_data);
         break;
     default:
