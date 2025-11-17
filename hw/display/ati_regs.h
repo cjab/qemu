@@ -406,12 +406,25 @@
 #define GMC_BRUSH_SOLIDCOLOR                    0x000000d0
 #define GMC_SRC_DSTCOLOR                        0x00003000
 #define GMC_BYTE_ORDER_MSB_TO_LSB               0x00000000
+#define GMC_BYTE_ORDER_LSB_TO_MSB               0x00004000
 #define GMC_DP_SRC_RECT                         0x02000000
 #define GMC_3D_FCN_EN_CLR                       0x00000000
 #define GMC_AUX_CLIP_CLEAR                      0x20000000
 #define GMC_DST_CLR_CMP_FCN_CLEAR               0x10000000
 #define GMC_WRITE_MASK_SET                      0x40000000
 #define GMC_DP_CONVERSION_TEMP_6500             0x00000000
+
+/* DP_GUI_MASTER_CNTL DP_SRC_DATATYPE named constants */
+#define GMC_SRC_DATATYPE_MASK                   0x00003000
+#define GMC_SRC_DATATYPE_MONO_FRGD_BKGD         0x00000000
+#define GMC_SRC_DATATYPE_MONO_FRGD              0x00001000
+#define GMC_SRC_DATATYPE_COLOR                  0x00003000
+
+/* DP_GUI_MASTER_CNTL DP_SRC_SOURCE named constants */
+#define GMC_SRC_SOURCE_MASK                     0x07000000
+#define GMC_SRC_SOURCE_MEMORY                   0x02000000
+#define GMC_SRC_SOURCE_HOST_DATA                0x03000000
+#define GMC_SRC_SOURCE_HOST_DATA_ALIGNED        0x04000000
 
 /* DP_GUI_MASTER_CNTL ROP3 named constants */
 #define GMC_ROP3_MASK                           0x00ff0000
