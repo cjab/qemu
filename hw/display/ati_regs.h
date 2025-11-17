@@ -398,6 +398,10 @@
 #define DST_24BPP                               0x00000005
 #define DST_32BPP                               0x00000006
 #define DP_SRC_DATATYPE                         0x00030000
+#define SRC_MONO_FRGD_BKGD                      0x00000000
+#define SRC_MONO_FRGD                           0x00010000
+#define SRC_COLOR                               0x00020000
+#define DP_BYTE_PIX_ORDER                       0x40000000
 
 #define BRUSH_SOLIDCOLOR                        0x00000d00
 
