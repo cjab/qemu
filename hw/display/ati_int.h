@@ -113,6 +113,8 @@ typedef struct ATIPM4MicrocodeState {
 
 typedef struct ATICCEState {
     ATIPM4MicrocodeState microcode;
+    /* MicroCntl */
+    bool freerun;
     /* BufferCntl */
     uint32_t buffer_size_l2qw;
     bool no_update;
