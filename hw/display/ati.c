@@ -1162,6 +1162,13 @@ static void ati_mm_write(void *opaque, hwaddr addr,
     if (addr < CUR_OFFSET || addr > CUR_CLR1 || ATI_DEBUG_HW_CURSOR) {
         trace_ati_mm_write(size, addr, ati_reg_name(addr & ~3ULL), data);
     }
+    if (s->cce.buffer_mode && addr >= 0x1400 && addr <= 0x1fff) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+            "ati_mm_write: wrote 0x%lx to gui register 0x%lx while cce engine enabled, ignored.\n",
+            data, addr);
+        return;
+    }
+
     switch (addr) {
     case MM_INDEX:
         s->regs.mm_index = data & ~3;
@@ -1184,7 +1191,6 @@ static void ati_mm_write(void *opaque, hwaddr addr,
         ati_reg_write(s, addr, data, size);
         break;
     }
-
 }
 
 static const MemoryRegionOps ati_mm_ops = {
