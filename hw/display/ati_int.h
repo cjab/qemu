@@ -206,4 +206,7 @@ bool ati_host_data_flush(ATIVGAState *s);
 void ati_host_data_finish(ATIVGAState *s);
 
 void ati_cce_receive_data(ATIVGAState *s, uint32_t data);
+bool ati_cce_micro_busy(const ATIPM4PacketState *p);
+uint32_t ati_cce_fifo_cnt(const ATICCEState *c);
+
 #endif /* ATI_INT_H */
