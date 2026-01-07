@@ -381,11 +381,14 @@
 #define PM4_BUFFER_CNTL_NONPM4                  0x00000000
 
 /* DP_DATATYPE bit constants */
+#define DP_DST_DATATYPE                         0x0000000f
+#define DP_BRUSH_DATATYPE                       0x00000f00
 #define DST_8BPP                                0x00000002
 #define DST_15BPP                               0x00000003
 #define DST_16BPP                               0x00000004
 #define DST_24BPP                               0x00000005
 #define DST_32BPP                               0x00000006
+#define DP_SRC_DATATYPE                         0x00030000
 
 #define BRUSH_SOLIDCOLOR                        0x00000d00
 
@@ -434,9 +437,11 @@
 #define DST_POLY_EDGE                           0x00040000
 
 /* DP_MIX bit constants */
+#define DP_SRC_SOURCE                           0x00000700
 #define DP_SRC_RECT                             0x00000200
 #define DP_SRC_HOST                             0x00000300
 #define DP_SRC_HOST_BYTEALIGN                   0x00000400
+#define DP_ROP3                                 0x00ff0000
 
 /* LVDS_GEN_CNTL constants */
 #define LVDS_BL_MOD_LEVEL_MASK                  0x0000ff00
