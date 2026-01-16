@@ -276,6 +276,16 @@ static inline uint64_t ati_reg_read_offs(uint32_t reg, int offs,
     }
 }
 
+static uint32_t ati_common_stat(ATIVGAState *s)
+{
+    /* TODO: This is _very_ naive. It will evolve. */
+    uint32_t micro_busy = ati_cce_micro_busy(&s->cce.cur_packet) ?
+                          MICRO_BUSY : 0;
+    /* GUI_ACTIVE is the OR of all other status flags */
+    uint32_t gui_active = micro_busy ? GUI_ACTIVE : 0;
+    return gui_active | micro_busy;
+}
+
 static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
 {
     ATIVGAState *s = opaque;
@@ -361,7 +371,7 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
                                       PCI_BASE_ADDRESS_0, size) & 0xfffffff0;
         break;
     case CONFIG_APER_SIZE:
-        val = s->vga.vram_size / 2;
+        val = memory_region_size(&s->linear_aper) / 2;
         break;
     case CONFIG_REG_1_BASE:
         val = pci_default_read_config(&s->dev,
@@ -383,7 +393,7 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
         break;
     case RBBM_STATUS:
     case GUI_STAT:
-        val = 64; /* free CMDFIFO entries */
+        val = ati_common_stat(s) | 64; /* free CMDFIFO entries */
         break;
     case CRTC_H_TOTAL_DISP:
         val = s->regs.crtc_h_total_disp;
@@ -548,6 +558,43 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
         qemu_log_mask(LOG_GUEST_ERROR,
                       "Read from write-only register 0x%x\n", (unsigned)addr);
         break;
+    case PM4_MICROCODE_ADDR:
+        val = s->cce.microcode.addr;
+        break;
+    case PM4_MICROCODE_RADDR:
+        val = 0;
+        break;
+    case PM4_MICROCODE_DATAH:
+        val = (s->cce.microcode.microcode[s->cce.microcode.raddr] >> 32) &
+              0xffffffff;
+        break;
+    case PM4_MICROCODE_DATAL:
+        val = s->cce.microcode.microcode[s->cce.microcode.raddr] & 0xffffffff;
+        s->cce.microcode.addr += 1;
+        /*
+         * The write address (addr) is always copied into the
+         * read address (raddr) after a DATAL read. This leads
+         * to surprising behavior when the PM4_MICROCODE_ADDR
+         * instead of the PM4_MICROCODE_RADDR register is set to
+         * a value just before a read. The first read after this
+         * will reflect the previous raddr before incrementing and
+         * re-syncing with addr. This is expected and observed on
+         * the hardware.
+         */
+        s->cce.microcode.raddr = s->cce.microcode.addr;
+        break;
+    case PM4_BUFFER_CNTL:
+        val = ((s->cce.buffer_mode & 0xf) << 28) |
+              (s->cce.no_update << 27) |
+              (s->cce.buffer_size_l2qw & 0x7ffffff);
+        break;
+    case PM4_MICRO_CNTL:
+        val = s->cce.freerun ? PM4_MICRO_FREERUN : 0;
+        break;
+    case PM4_STAT: {
+        val = ati_common_stat(s) | ati_cce_fifo_cnt(&s->cce);
+        break;
+    }
     default:
         break;
     }
@@ -575,14 +622,9 @@ static void ati_host_data_reset(ATIHostDataState *hd)
     hd->col = 0;
 }
 
-static void ati_mm_write(void *opaque, hwaddr addr,
-                           uint64_t data, unsigned int size)
+void ati_reg_write(ATIVGAState *s, hwaddr addr,
+                   uint64_t data, unsigned int size)
 {
-    ATIVGAState *s = opaque;
-
-    if (addr < CUR_OFFSET || addr > CUR_CLR1 || ATI_DEBUG_HW_CURSOR) {
-        trace_ati_mm_write(size, addr, ati_reg_name(addr & ~3ULL), data);
-    }
     switch (addr) {
     case MM_INDEX:
         s->regs.mm_index = data & ~3;
@@ -595,10 +637,10 @@ static void ati_mm_write(void *opaque, hwaddr addr,
                 stn_le_p(s->vga.vram_ptr + idx, size, data);
             }
         } else if (s->regs.mm_index > MM_DATA + 3) {
-            ati_mm_write(s, s->regs.mm_index + addr - MM_DATA, data, size);
+            ati_reg_write(s, s->regs.mm_index + addr - MM_DATA, data, size);
         } else {
             qemu_log_mask(LOG_GUEST_ERROR,
-                "ati_mm_write: mm_index too small: %u\n", s->regs.mm_index);
+                "ati_reg_write: mm_index too small: %u\n", s->regs.mm_index);
         }
         break;
     case BIOS_0_SCRATCH ... BUS_CNTL - 1:
@@ -1061,9 +1103,69 @@ static void ati_mm_write(void *opaque, hwaddr addr,
         ati_flush_host_data(s);
         ati_host_data_reset(&s->host_data);
         break;
+    case PM4_MICROCODE_ADDR:
+        s->cce.microcode.addr = data;
+        break;
+    case PM4_MICROCODE_RADDR:
+        s->cce.microcode.raddr = data;
+        s->cce.microcode.addr = data;
+        break;
+    case PM4_MICROCODE_DATAH: {
+        uint64_t curr = s->cce.microcode.microcode[s->cce.microcode.addr];
+        uint64_t low = curr & 0xffffffff;
+        uint64_t high = (data & 0x1f) << 32;
+        s->cce.microcode.microcode[s->cce.microcode.addr] = high | low;
+        break;
+    }
+    case PM4_MICROCODE_DATAL: {
+        uint64_t curr = s->cce.microcode.microcode[s->cce.microcode.addr];
+        uint64_t low = data & 0xffffffff;
+        uint64_t high = curr & (0xffffffffull << 32);
+        s->cce.microcode.microcode[s->cce.microcode.addr] = high | low;
+        s->cce.microcode.addr += 1;
+        break;
+    }
+    case PM4_BUFFER_CNTL: {
+        s->cce.buffer_size_l2qw = data & 0x7ffffff;
+        s->cce.no_update = (data >> 27) & 1;
+        s->cce.buffer_mode = (data >> 28) & 0xf;
+        break;
+    }
+    case PM4_MICRO_CNTL: {
+        s->cce.freerun = data & PM4_MICRO_FREERUN;
+        break;
+    }
+    case PM4_FIFO_DATA_EVEN:
+        /* fall through */
+    case PM4_FIFO_DATA_ODD:
+        /*
+         * Real hardware does seem to behave differently when the even/odd
+         * sequence is not strictly adhered to but it's difficult to determine
+         * exactly what is happenning. So for now we treat them the same.
+         */
+        ati_cce_receive_data(s, data);
+        break;
     default:
         break;
     }
+}
+
+static void ati_mm_write(void *opaque, hwaddr addr,
+                         uint64_t data, unsigned int size)
+{
+    ATIVGAState *s = opaque;
+
+    if (addr < CUR_OFFSET || addr > CUR_CLR1 || ATI_DEBUG_HW_CURSOR) {
+        trace_ati_mm_write(size, addr, ati_reg_name(addr & ~3ULL), data);
+    }
+    if (addr >= 0x1400 && addr <= 0x1fff && s->cce.buffer_mode != 0) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+            "ati_mm_write: wrote 0x%lx to gui register 0x%lx while cce engine enabled, ignored.\n",
+            data, addr);
+        return;
+    }
+
+    ati_reg_write(s, addr, data, size);
 }
 
 static const MemoryRegionOps ati_mm_ops = {
@@ -1076,6 +1178,7 @@ static void ati_vga_realize(PCIDevice *dev, Error **errp)
 {
     ATIVGAState *s = ATI_VGA(dev);
     VGACommonState *vga = &s->vga;
+    uint64_t aper_size;
 
 #ifndef CONFIG_PIXMAN
     if (s->use_pixman != 0) {
@@ -1135,7 +1238,18 @@ static void ati_vga_realize(PCIDevice *dev, Error **errp)
     /* io space is alias to beginning of mmregs */
     memory_region_init_alias(&s->io, OBJECT(s), "ati.io", &s->mm, 0, 0x100);
 
-    pci_register_bar(dev, 0, PCI_BASE_ADDRESS_MEM_PREFETCH, &vga->vram);
+    /*
+     * The framebuffer is at the beginning of the linear aperture. For
+     * Rage128 the upper half of the aperture is reserved for an AGP
+     * window (which we do not emulate.)
+     */
+    aper_size = s->dev_id == PCI_DEVICE_ID_ATI_RAGE128_PF ?
+                ATI_RAGE128_LINEAR_APER_SIZE : ATI_R100_LINEAR_APER_SIZE;
+    memory_region_init(&s->linear_aper, OBJECT(dev), "ati-linear-aperture0",
+                       aper_size);
+    memory_region_add_subregion(&s->linear_aper, 0, &vga->vram);
+
+    pci_register_bar(dev, 0, PCI_BASE_ADDRESS_MEM_PREFETCH, &s->linear_aper);
     pci_register_bar(dev, 1, PCI_BASE_ADDRESS_SPACE_IO, &s->io);
     pci_register_bar(dev, 2, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->mm);
 
