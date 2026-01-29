@@ -276,6 +276,16 @@ static inline uint64_t ati_reg_read_offs(uint32_t reg, int offs,
     }
 }
 
+static uint32_t ati_common_stat(ATIVGAState *s)
+{
+    /* TODO: This is _very_ naive. It will evolve. */
+    uint32_t micro_busy = ati_cce_micro_busy(&s->cce.cur_packet) ?
+                          MICRO_BUSY : 0;
+    /* GUI_ACTIVE is the OR of all other status flags */
+    uint32_t gui_active = micro_busy ? GUI_ACTIVE : 0;
+    return gui_active | micro_busy;
+}
+
 static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
 {
     ATIVGAState *s = opaque;
@@ -361,7 +371,7 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
                                       PCI_BASE_ADDRESS_0, size) & 0xfffffff0;
         break;
     case CONFIG_APER_SIZE:
-        val = s->vga.vram_size / 2;
+        val = memory_region_size(&s->linear_aper) / 2;
         break;
     case CONFIG_REG_1_BASE:
         val = pci_default_read_config(&s->dev,
@@ -383,7 +393,7 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
         break;
     case RBBM_STATUS:
     case GUI_STAT:
-        val = 64; /* free CMDFIFO entries */
+        val = ati_common_stat(s) | 64; /* free CMDFIFO entries */
         break;
     case CRTC_H_TOTAL_DISP:
         val = s->regs.crtc_h_total_disp;
@@ -438,7 +448,7 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
     case DST_PITCH:
         val = s->regs.dst_pitch;
         if (s->dev_id == PCI_DEVICE_ID_ATI_RAGE128_PF) {
-            val &= s->regs.dst_tile << 16;
+            val |= s->regs.dst_tile << 16;
         }
         break;
     case DST_WIDTH:
@@ -460,7 +470,13 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
         val = s->regs.dst_y;
         break;
     case DP_GUI_MASTER_CNTL:
-        val = s->regs.dp_gui_master_cntl;
+        /* DP_GUI_MASTER_CNTL aliases fields from DP_MIX and DP_DATATYPE */
+        val = s->regs.dp_gui_master_cntl |
+              ((s->regs.dp_datatype & DP_BRUSH_DATATYPE) >> 4) |
+              ((s->regs.dp_datatype & DP_DST_DATATYPE) << 8) |
+              ((s->regs.dp_datatype & DP_SRC_DATATYPE) >> 4) |
+              (s->regs.dp_mix & DP_ROP3) |
+              ((s->regs.dp_mix & DP_SRC_SOURCE) << 16);
         break;
     case SRC_OFFSET:
         val = s->regs.src_offset;
@@ -468,7 +484,7 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
     case SRC_PITCH:
         val = s->regs.src_pitch;
         if (s->dev_id == PCI_DEVICE_ID_ATI_RAGE128_PF) {
-            val &= s->regs.src_tile << 16;
+            val |= s->regs.src_tile << 16;
         }
         break;
     case DP_BRUSH_BKGD_CLR:
@@ -508,8 +524,70 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
         val |= s->regs.default_tile << 16;
         break;
     case DEFAULT_SC_BOTTOM_RIGHT:
-        val = s->regs.default_sc_bottom_right;
+        val = (s->regs.default_sc_bottom << 16) |
+              s->regs.default_sc_right;
         break;
+    case SC_TOP:
+        val = s->regs.sc_top;
+        break;
+    case SC_LEFT:
+        val = s->regs.sc_left;
+        break;
+    case SC_BOTTOM:
+        val = s->regs.sc_bottom;
+        break;
+    case SC_RIGHT:
+        val = s->regs.sc_right;
+        break;
+    case SRC_SC_BOTTOM:
+        val = s->regs.src_sc_bottom;
+        break;
+    case SRC_SC_RIGHT:
+        val = s->regs.src_sc_right;
+        break;
+    case SC_TOP_LEFT:
+    case SC_BOTTOM_RIGHT:
+    case SRC_SC_BOTTOM_RIGHT:
+        qemu_log_mask(LOG_GUEST_ERROR,
+                      "Read from write-only register 0x%x\n", (unsigned)addr);
+        break;
+    case PM4_MICROCODE_ADDR:
+        val = s->cce.microcode.addr;
+        break;
+    case PM4_MICROCODE_RADDR:
+        val = 0;
+        break;
+    case PM4_MICROCODE_DATAH:
+        val = (s->cce.microcode.microcode[s->cce.microcode.raddr] >> 32) &
+              0xffffffff;
+        break;
+    case PM4_MICROCODE_DATAL:
+        val = s->cce.microcode.microcode[s->cce.microcode.raddr] & 0xffffffff;
+        s->cce.microcode.addr += 1;
+        /*
+         * The write address (addr) is always copied into the
+         * read address (raddr) after a DATAL read. This leads
+         * to surprising behavior when the PM4_MICROCODE_ADDR
+         * instead of the PM4_MICROCODE_RADDR register is set to
+         * a value just before a read. The first read after this
+         * will reflect the previous raddr before incrementing and
+         * re-syncing with addr. This is expected and observed on
+         * the hardware.
+         */
+        s->cce.microcode.raddr = s->cce.microcode.addr;
+        break;
+    case PM4_BUFFER_CNTL:
+        val = ((s->cce.buffer_mode & 0xf) << 28) |
+              (s->cce.no_update << 27) |
+              (s->cce.buffer_size_l2qw & 0x7ffffff);
+        break;
+    case PM4_MICRO_CNTL:
+        val = s->cce.freerun ? PM4_MICRO_FREERUN : 0;
+        break;
+    case PM4_STAT: {
+        val = ati_common_stat(s) | ati_cce_fifo_cnt(&s->cce);
+        break;
+    }
     default:
         break;
     }
@@ -530,14 +608,16 @@ static inline void ati_reg_write_offs(uint32_t *reg, int offs,
     }
 }
 
-static void ati_mm_write(void *opaque, hwaddr addr,
-                           uint64_t data, unsigned int size)
+static void ati_host_data_reset(ATIHostDataState *hd)
 {
-    ATIVGAState *s = opaque;
+    hd->next = 0;
+    hd->row = 0;
+    hd->col = 0;
+}
 
-    if (addr < CUR_OFFSET || addr > CUR_CLR1 || ATI_DEBUG_HW_CURSOR) {
-        trace_ati_mm_write(size, addr, ati_reg_name(addr & ~3ULL), data);
-    }
+void ati_reg_write(ATIVGAState *s, hwaddr addr,
+                   uint64_t data, unsigned int size)
+{
     switch (addr) {
     case MM_INDEX:
         s->regs.mm_index = data & ~3;
@@ -550,10 +630,10 @@ static void ati_mm_write(void *opaque, hwaddr addr,
                 stn_le_p(s->vga.vram_ptr + idx, size, data);
             }
         } else if (s->regs.mm_index > MM_DATA + 3) {
-            ati_mm_write(s, s->regs.mm_index + addr - MM_DATA, data, size);
+            ati_reg_write(s, s->regs.mm_index + addr - MM_DATA, data, size);
         } else {
             qemu_log_mask(LOG_GUEST_ERROR,
-                "ati_mm_write: mm_index too small: %u\n", s->regs.mm_index);
+                "ati_reg_write: mm_index too small: %u\n", s->regs.mm_index);
         }
         break;
     case BIOS_0_SCRATCH ... BUS_CNTL - 1:
@@ -805,6 +885,7 @@ static void ati_mm_write(void *opaque, hwaddr addr,
         break;
     case DST_WIDTH:
         s->regs.dst_width = data & 0x3fff;
+        ati_host_data_reset(&s->host_data);
         ati_2d_blt(s);
         break;
     case DST_HEIGHT:
@@ -855,6 +936,7 @@ static void ati_mm_write(void *opaque, hwaddr addr,
     case DST_HEIGHT_WIDTH:
         s->regs.dst_width = data & 0x3fff;
         s->regs.dst_height = (data >> 16) & 0x3fff;
+        ati_host_data_reset(&s->host_data);
         ati_2d_blt(s);
         break;
     case DP_GUI_MASTER_CNTL:
@@ -862,10 +944,30 @@ static void ati_mm_write(void *opaque, hwaddr addr,
         s->regs.dp_datatype = (data & 0x0f00) >> 8 | (data & 0x30f0) << 4 |
                               (data & 0x4000) << 16;
         s->regs.dp_mix = (data & GMC_ROP3_MASK) | (data & 0x7000000) >> 16;
+
+        if (!(data & GMC_SRC_PITCH_OFFSET_CNTL)) {
+            s->regs.src_offset = s->regs.default_offset;
+            s->regs.src_pitch = s->regs.default_pitch;
+        }
+        if (!(data & GMC_DST_PITCH_OFFSET_CNTL)) {
+            s->regs.dst_offset = s->regs.default_offset;
+            s->regs.dst_pitch = s->regs.default_pitch;
+        }
+        if (!(data & GMC_SRC_CLIPPING)) {
+            s->regs.src_sc_right = s->regs.default_sc_right;
+            s->regs.src_sc_bottom = s->regs.default_sc_bottom;
+        }
+        if (!(data & GMC_DST_CLIPPING)) {
+            s->regs.sc_top = 0;
+            s->regs.sc_left = 0;
+            s->regs.sc_right = s->regs.default_sc_right;
+            s->regs.sc_bottom = s->regs.default_sc_bottom;
+        }
         break;
     case DST_WIDTH_X:
         s->regs.dst_x = data & 0x3fff;
         s->regs.dst_width = (data >> 16) & 0x3fff;
+        ati_host_data_reset(&s->host_data);
         ati_2d_blt(s);
         break;
     case SRC_X_Y:
@@ -879,6 +981,7 @@ static void ati_mm_write(void *opaque, hwaddr addr,
     case DST_WIDTH_HEIGHT:
         s->regs.dst_height = data & 0x3fff;
         s->regs.dst_width = (data >> 16) & 0x3fff;
+        ati_host_data_reset(&s->host_data);
         ati_2d_blt(s);
         break;
     case DST_HEIGHT_Y:
@@ -909,6 +1012,12 @@ static void ati_mm_write(void *opaque, hwaddr addr,
     case DP_CNTL:
         s->regs.dp_cntl = data;
         break;
+    case DP_SRC_FRGD_CLR:
+        s->regs.dp_src_frgd_clr = data;
+        break;
+    case DP_SRC_BKGD_CLR:
+        s->regs.dp_src_bkgd_clr = data;
+        break;
     case DP_DATATYPE:
         s->regs.dp_datatype = data & 0xe0070f0f;
         break;
@@ -935,11 +1044,122 @@ static void ati_mm_write(void *opaque, hwaddr addr,
         }
         break;
     case DEFAULT_SC_BOTTOM_RIGHT:
-        s->regs.default_sc_bottom_right = data & 0x3fff3fff;
+        s->regs.default_sc_right = data & 0x3fff;
+        s->regs.default_sc_bottom = (data >> 16) & 0x3fff;
+        break;
+    case SC_TOP_LEFT:
+        s->regs.sc_left = data & 0x3fff;
+        s->regs.sc_top = (data >> 16) & 0x3fff;
+        break;
+    case SC_LEFT:
+        s->regs.sc_left = data & 0x3fff;
+        break;
+    case SC_TOP:
+        s->regs.sc_top = data & 0x3fff;
+        break;
+    case SC_BOTTOM_RIGHT:
+        s->regs.sc_right = data & 0x3fff;
+        s->regs.sc_bottom = (data >> 16) & 0x3fff;
+        break;
+    case SC_RIGHT:
+        s->regs.sc_right = data & 0x3fff;
+        break;
+    case SC_BOTTOM:
+        s->regs.sc_bottom = data & 0x3fff;
+        break;
+    case SRC_SC_BOTTOM_RIGHT:
+        s->regs.src_sc_right = data & 0x3fff;
+        s->regs.src_sc_bottom = (data >> 16) & 0x3fff;
+        break;
+    case SRC_SC_RIGHT:
+        s->regs.src_sc_right = data & 0x3fff;
+        break;
+    case SRC_SC_BOTTOM:
+        s->regs.src_sc_bottom = data & 0x3fff;
+        break;
+    case HOST_DATA0:
+    case HOST_DATA1:
+    case HOST_DATA2:
+    case HOST_DATA3:
+    case HOST_DATA4:
+    case HOST_DATA5:
+    case HOST_DATA6:
+    case HOST_DATA7:
+        s->host_data.acc[s->host_data.next++] = data;
+        if (s->host_data.next >= 4) {
+            ati_flush_host_data(s);
+            s->host_data.next = 0;
+        }
+        break;
+    case HOST_DATA_LAST:
+        s->host_data.acc[s->host_data.next] = data;
+        ati_flush_host_data(s);
+        ati_host_data_reset(&s->host_data);
+        break;
+    case PM4_MICROCODE_ADDR:
+        s->cce.microcode.addr = data;
+        break;
+    case PM4_MICROCODE_RADDR:
+        s->cce.microcode.raddr = data;
+        s->cce.microcode.addr = data;
+        break;
+    case PM4_MICROCODE_DATAH: {
+        uint64_t curr = s->cce.microcode.microcode[s->cce.microcode.addr];
+        uint64_t low = curr & 0xffffffff;
+        uint64_t high = (data & 0x1f) << 32;
+        s->cce.microcode.microcode[s->cce.microcode.addr] = high | low;
+        break;
+    }
+    case PM4_MICROCODE_DATAL: {
+        uint64_t curr = s->cce.microcode.microcode[s->cce.microcode.addr];
+        uint64_t low = data & 0xffffffff;
+        uint64_t high = curr & (0xffffffffull << 32);
+        s->cce.microcode.microcode[s->cce.microcode.addr] = high | low;
+        s->cce.microcode.addr += 1;
+        break;
+    }
+    case PM4_BUFFER_CNTL: {
+        s->cce.buffer_size_l2qw = data & 0x7ffffff;
+        s->cce.no_update = (data >> 27) & 1;
+        s->cce.buffer_mode = (data >> 28) & 0xf;
+        break;
+    }
+    case PM4_MICRO_CNTL: {
+        s->cce.freerun = data & PM4_MICRO_FREERUN;
+        break;
+    }
+    case PM4_FIFO_DATA_EVEN:
+        /* fall through */
+    case PM4_FIFO_DATA_ODD:
+        /*
+         * Real hardware does seem to behave differently when the even/odd
+         * sequence is not strictly adhered to but it's difficult to determine
+         * exactly what is happenning. So for now we treat them the same.
+         */
+        ati_cce_receive_data(s, data);
         break;
     default:
         break;
     }
+}
+
+
+static void ati_mm_write(void *opaque, hwaddr addr,
+                         uint64_t data, unsigned int size)
+{
+    ATIVGAState *s = opaque;
+
+    if (addr < CUR_OFFSET || addr > CUR_CLR1 || ATI_DEBUG_HW_CURSOR) {
+        trace_ati_mm_write(size, addr, ati_reg_name(addr & ~3ULL), data);
+    }
+    if (addr >= 0x1400 && addr <= 0x1fff && s->cce.buffer_mode != 0) {
+        qemu_log_mask(LOG_GUEST_ERROR,
+            "ati_mm_write: wrote 0x%lx to gui register 0x%lx while cce engine enabled, ignored.\n",
+            data, addr);
+        return;
+    }
+
+    ati_reg_write(s, addr, data, size);
 }
 
 static const MemoryRegionOps ati_mm_ops = {
@@ -952,6 +1172,7 @@ static void ati_vga_realize(PCIDevice *dev, Error **errp)
 {
     ATIVGAState *s = ATI_VGA(dev);
     VGACommonState *vga = &s->vga;
+    uint64_t aper_size;
 
 #ifndef CONFIG_PIXMAN
     if (s->use_pixman != 0) {
@@ -1011,7 +1232,18 @@ static void ati_vga_realize(PCIDevice *dev, Error **errp)
     /* io space is alias to beginning of mmregs */
     memory_region_init_alias(&s->io, OBJECT(s), "ati.io", &s->mm, 0, 0x100);
 
-    pci_register_bar(dev, 0, PCI_BASE_ADDRESS_MEM_PREFETCH, &vga->vram);
+    /*
+     * The framebuffer is at the beginning of the linear aperture. For
+     * Rage128 the upper half of the aperture is reserved for an AGP
+     * window (which we do not emulate.)
+     */
+    aper_size = s->dev_id == PCI_DEVICE_ID_ATI_RAGE128_PF ?
+                ATI_RAGE128_LINEAR_APER_SIZE : ATI_R100_LINEAR_APER_SIZE;
+    memory_region_init(&s->linear_aper, OBJECT(dev), "ati-linear-aperture0",
+                       aper_size);
+    memory_region_add_subregion(&s->linear_aper, 0, &vga->vram);
+
+    pci_register_bar(dev, 0, PCI_BASE_ADDRESS_MEM_PREFETCH, &s->linear_aper);
     pci_register_bar(dev, 1, PCI_BASE_ADDRESS_SPACE_IO, &s->io);
     pci_register_bar(dev, 2, PCI_BASE_ADDRESS_SPACE_MEMORY, &s->mm);
 
@@ -1030,6 +1262,8 @@ static void ati_vga_reset(DeviceState *dev)
     /* reset vga */
     vga_common_reset(&s->vga);
     s->mode = VGA_MODE;
+
+    ati_host_data_reset(&s->host_data);
 }
 
 static void ati_vga_exit(PCIDevice *dev)
