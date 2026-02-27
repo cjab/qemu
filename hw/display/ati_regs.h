@@ -252,6 +252,15 @@
 #define DP_T12_CNTL                             0x178c
 #define DST_BRES_T1_LNTH                        0x1790
 #define DST_BRES_T2_LNTH                        0x1794
+#define HOST_DATA0                              0x17c0
+#define HOST_DATA1                              0x17c4
+#define HOST_DATA2                              0x17c8
+#define HOST_DATA3                              0x17cc
+#define HOST_DATA4                              0x17d0
+#define HOST_DATA5                              0x17d4
+#define HOST_DATA6                              0x17d8
+#define HOST_DATA7                              0x17dc
+#define HOST_DATA_LAST                          0x17e0
 #define SCALE_SRC_HEIGHT_WIDTH                  0x1994
 #define SCALE_OFFSET_0                          0x1998
 #define SCALE_PITCH                             0x199c
@@ -280,6 +289,7 @@
 
 /* CONSTANTS */
 #define GUI_ACTIVE                              0x80000000
+#define MICRO_BUSY                              0x00020000
 #define ENGINE_IDLE                             0x0
 
 #define PLL_WR_EN                               0x00000080
@@ -378,7 +388,22 @@
 #define PC_BUSY                                 0x80000000
 
 #define BUS_MASTER_DIS                          0x00000040
+
+
+/* PM4_BUFFER_CNTL buffer mode bit constants */
 #define PM4_BUFFER_CNTL_NONPM4                  0x00000000
+#define PM4_BUFFER_CNTL_192PIO                  0x00000001
+#define PM4_BUFFER_CNTL_192BM                   0x00000002
+#define PM4_BUFFER_CNTL_128PIO_64INDBM          0x00000003
+#define PM4_BUFFER_CNTL_128BM_64INDBM           0x00000004
+#define PM4_BUFFER_CNTL_64PIO_128INDBM          0x00000005
+#define PM4_BUFFER_CNTL_64BM_128INDBM           0x00000006
+#define PM4_BUFFER_CNTL_64PIO_64VCBM_64INDBM    0x00000007
+#define PM4_BUFFER_CNTL_64BM_64VCBM_64INDBM     0x00000008
+#define PM4_BUFFER_CNTL_64PIO_64VCPIO_64INPIO   0x0000000f
+
+/* PM4_MICRO_CNTL bit constants */
+#define PM4_MICRO_FREERUN                       0x40000000
 
 /* DP_DATATYPE bit constants */
 #define DST_8BPP                                0x00000002
@@ -386,6 +411,13 @@
 #define DST_16BPP                               0x00000004
 #define DST_24BPP                               0x00000005
 #define DST_32BPP                               0x00000006
+#define DP_DST_DATATYPE                         0x0000000f
+#define DP_BRUSH_DATATYPE                       0x00000f00
+#define SRC_MONO_FRGD_BKGD                      0x00000000
+#define SRC_MONO_FRGD                           0x00010000
+#define SRC_COLOR                               0x00030000
+#define DP_SRC_DATATYPE                         0x00030000
+#define DP_BYTE_PIX_ORDER                       0x40000000
 
 #define BRUSH_SOLIDCOLOR                        0x00000d00
 
@@ -394,6 +426,8 @@
 #define GMC_DST_PITCH_OFFSET_CNTL               0x00000002
 #define GMC_SRC_CLIP_DEFAULT                    0x00000000
 #define GMC_DST_CLIP_DEFAULT                    0x00000000
+#define GMC_SRC_CLIPPING                        0x00000004
+#define GMC_DST_CLIPPING                        0x00000008
 #define GMC_BRUSH_SOLIDCOLOR                    0x000000d0
 #define GMC_SRC_DSTCOLOR                        0x00003000
 #define GMC_BYTE_ORDER_MSB_TO_LSB               0x00000000
@@ -437,6 +471,8 @@
 #define DP_SRC_RECT                             0x00000200
 #define DP_SRC_HOST                             0x00000300
 #define DP_SRC_HOST_BYTEALIGN                   0x00000400
+#define DP_SRC_SOURCE                           0x00000700
+#define DP_ROP3                                 0x00ff0000
 
 /* LVDS_GEN_CNTL constants */
 #define LVDS_BL_MOD_LEVEL_MASK                  0x0000ff00
