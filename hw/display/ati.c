@@ -326,6 +326,17 @@ static uint32_t ati_mc_read(ATIVGAState *s, uint32_t gpu_addr)
     return val;
 }
 
+static void ati_mc_write(ATIVGAState *s, uint32_t gpu_addr, uint32_t data)
+{
+    ATIMemRoute route = ati_mc_route(s, gpu_addr);
+
+    if (route.is_vram) {
+        stl_le_p(s->vga.vram_ptr + route.addr, data);
+        return;
+    }
+    stl_le_pci_dma(&s->dev, route.addr, data, MEMTXATTRS_UNSPECIFIED);
+}
+
 static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
 {
     ATIVGAState *s = opaque;
@@ -628,6 +639,12 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
         break;
     case CP_IB_BUFSZ:
         val = s->regs.cp_ib_bufsz;
+        break;
+    case SCRATCH_UMSK:
+        val = s->regs.scratch_umsk;
+        break;
+    case SCRATCH_ADDR:
+        val = s->regs.scratch_addr;
         break;
     case SCRATCH_REG0:
     case SCRATCH_REG1:
@@ -1205,6 +1222,12 @@ void ati_mm_write(void *opaque, hwaddr addr,
         }
         break;
     }
+    case SCRATCH_UMSK:
+        s->regs.scratch_umsk = data & 0x0003003f;
+        break;
+    case SCRATCH_ADDR:
+        s->regs.scratch_addr = data & 0xffffffc0;
+        break;
     case SCRATCH_REG0:
     case SCRATCH_REG1:
     case SCRATCH_REG2:
@@ -1214,6 +1237,12 @@ void ati_mm_write(void *opaque, hwaddr addr,
     {
         int reg_idx = (addr - SCRATCH_REG0) / sizeof(uint32_t);
         s->regs.scratch_reg[reg_idx] = data;
+        // Scratch register writeback
+        if (s->dev_id == PCI_DEVICE_ID_ATI_RADEON_QY &&
+           s->regs.scratch_umsk & (1 << reg_idx)) {
+            ati_mc_write(s, s->regs.scratch_addr + reg_idx * sizeof(uint32_t),
+                         s->regs.scratch_reg[reg_idx]);
+        }
         break;
     }
     default:

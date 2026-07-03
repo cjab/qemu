@@ -151,7 +151,9 @@
 #define PM4_FPU_FPR                             0x0768
 #define PM4_FPU_FPG                             0x076c
 #define PM4_FPU_FPB                             0x0770
+#define SCRATCH_UMSK                            0x0770
 #define PM4_FPU_FPA                             0x0774
+#define SCRATCH_ADDR                            0x0774
 #define PM4_FPU_INTXY0                          0x0780
 #define PM4_FPU_INTXY1                          0x0784
 #define PM4_FPU_INTXY2                          0x0788
