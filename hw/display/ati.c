@@ -628,6 +628,9 @@ static uint64_t ati_mm_read(void *opaque, hwaddr addr, unsigned int size)
     case CP_RB_CNTL:
         val = s->regs.cp_rb_cntl;
         break;
+    case CP_RB_RPTR_ADDR:
+        val = s->regs.cp_rb_rptr_addr;
+        break;
     case CP_RB_RPTR:
         val = s->regs.cp_rb_rptr;
         break;
@@ -1188,6 +1191,9 @@ void ati_mm_write(void *opaque, hwaddr addr,
     case CP_RB_CNTL:
         s->regs.cp_rb_cntl = data & 0x880f3f3f;
         break;
+    case CP_RB_RPTR_ADDR:
+        s->regs.cp_rb_rptr_addr = data;
+        break;
     case CP_RB_WPTR:
     {
         uint32_t size_l2qw = s->regs.cp_rb_cntl & 0x3f;
@@ -1203,6 +1209,11 @@ void ati_mm_write(void *opaque, hwaddr addr,
                             s->regs.cp_rb_rptr * sizeof(uint32_t);
             ati_pkt_receive_data(s, &s->cur_packet, ati_mc_read(s, offs));
             s->regs.cp_rb_rptr = (s->regs.cp_rb_rptr + 1) & size_msk;
+            // rptr writeback
+            if (!(s->regs.cp_rb_cntl & RB_NO_UPDATE)) {
+                stl_le_pci_dma(&s->dev, s->regs.cp_rb_rptr_addr & 0xfffffffc,
+                               s->regs.cp_rb_rptr, MEMTXATTRS_UNSPECIFIED);
+            }
         }
         break;
     }
@@ -1371,6 +1382,7 @@ static void ati_vga_reset(DeviceState *dev)
     s->regs.cp_rb_wptr = 0;
     s->regs.cp_rb_base = 0;
     s->regs.cp_rb_cntl = 0;
+    s->regs.cp_rb_rptr_addr = 0;
     memset(&s->cur_packet, 0, sizeof(s->cur_packet));
 }
 

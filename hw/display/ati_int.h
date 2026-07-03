@@ -127,6 +127,7 @@ typedef struct ATIVGARegs {
     uint32_t cp_csq_cntl;
     uint32_t cp_rb_base;
     uint32_t cp_rb_cntl;
+    uint32_t cp_rb_rptr_addr;
     uint32_t cp_rb_rptr;
     uint32_t cp_rb_wptr;
     uint32_t cp_ib_base;

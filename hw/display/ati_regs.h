@@ -122,6 +122,7 @@
 #define CP_RB_CNTL                              0x0704
 #define PM4_BUFFER_WM_CNTL                      0x0708
 #define PM4_BUFFER_DL_RPTR_ADDR                 0x070c
+#define CP_RB_RPTR_ADDR                         0x070c
 #define PM4_BUFFER_DL_RPTR                      0x0710
 #define CP_RB_RPTR                              0x0710
 #define PM4_BUFFER_DL_WPTR                      0x0714
@@ -498,6 +499,9 @@
 
 /* AIC_CTRL constants */
 #define PCIGART_TRANSLATE_EN                    0x00000001
+
+/* CP_RB_CNTL constants */
+#define RB_NO_UPDATE                            0x08000000
 
 /* POWER_MANAGEMENT constants */
 #define PWR_MGT_ON                              0x00000001
