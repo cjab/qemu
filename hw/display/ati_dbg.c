@@ -264,11 +264,43 @@ static struct ati_regdesc ati_reg_names[] = {
     {NULL, -1}
 };
 
+static struct ati_regdesc ati_r100_reg_names[] = {
+    {"AIC_CTRL", 0x01d0},
+    {"AIC_PT_BASE", 0x01d8},
+    {"AIC_LO_ADDR", 0x01dc},
+    {"AIC_HI_ADDR", 0x01e0},
+    {"CP_RB_BASE", 0x0700},
+    {"CP_RB_CNTL", 0x0704},
+    {"CP_RB_RPTR_ADDR", 0x070c},
+    {"CP_RB_RPTR", 0x0710},
+    {"CP_RB_WPTR", 0x0714},
+    {"CP_RB_WPTR_DELAY", 0x0718},
+    {"CP_RB_RPTR_WR", 0x071c},
+    {"CP_CSQ_CNTL", 0x0740},
+    {"CP_CSQ_MODE", 0x0744},
+    {"SCRATCH_UMSK", 0x0770},
+    {"SCRATCH_ADDR", 0x0774},
+    {"SCRATCH_REG0", 0x15e0},
+    {"SCRATCH_REG1", 0x15e4},
+    {"SCRATCH_REG2", 0x15e8},
+    {"SCRATCH_REG3", 0x15ec},
+    {"SCRATCH_REG4", 0x15f0},
+    {"SCRATCH_REG5", 0x15f4},
+    {"ISYNC_CNTL", 0x1724},
+    {NULL, -1}
+};
+
 const char *ati_reg_name(int num)
 {
     int i;
 
     num &= ~3;
+    for (i = 0; ati_r100_reg_names[i].name; i++) {
+        if (ati_r100_reg_names[i].num == num) {
+            return ati_r100_reg_names[i].name;
+        }
+    }
+
     for (i = 0; ati_reg_names[i].name; i++) {
         if (ati_reg_names[i].num == num) {
             return ati_reg_names[i].name;
