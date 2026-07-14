@@ -723,8 +723,11 @@ void ati_mm_write(void *opaque, hwaddr addr,
         }
         break;
     case GEN_INT_STATUS:
+        if (data & (1 << 26)) {
+            s->regs.gen_int_status |= 1 << 25;
+        }
         data &= (s->dev_id == PCI_DEVICE_ID_ATI_RAGE128_PF ?
-                 0x000f040fUL : 0xfc080effUL);
+                 0x000f040fUL : 0xfe080effUL);
         s->regs.gen_int_status &= ~data;
         ati_vga_update_irq(s);
         break;
