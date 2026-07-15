@@ -110,6 +110,14 @@ static void ati_pkt_type3_data(ATIVGAState *s, ATIPktState *p, uint32_t data)
     trace_ati_pkt_type3_data(p->dwords_processed, opcode, data);
 }
 
+static void ati_pkt_type3_exec(ATIVGAState *s, ATIPktState *p)
+{
+    switch (opcode) {
+        case ATI_PKT_TYPE3_HOSTDATA_BLT: {
+        }
+    }
+}
+
 static void ati_pkt_data(ATIVGAState *s, ATIPktState *p, uint32_t data)
 {
     switch (p->type) {
@@ -130,6 +138,9 @@ static void ati_pkt_data(ATIVGAState *s, ATIPktState *p, uint32_t data)
     case ATI_PKT_TYPE3: {
         ati_pkt_type3_data(s, p, data);
         p->dwords_processed += 1;
+        if (ati_pkt_dwords_remaining(p) == 0) {
+            ati_pkt_type3_exec(s, p);
+        }
         break;
     }
     default:
