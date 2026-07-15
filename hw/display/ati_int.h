@@ -62,6 +62,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(ATIVGAState, ATI_VGA)
 #define ATI_PKT_TYPE3_COUNT_MASK     0x3fff0000
 #define ATI_PKT_TYPE3_COUNT_SHIFT    16
 
+#define ATI_PKT_TYPE3_HOSTDATA_BLT   0x94
+
 typedef struct ATIVGARegs {
     uint32_t mm_index;
     uint32_t bios_scratch[8];
